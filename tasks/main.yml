@@ -1,0 +1,149 @@
+---
+
+- name: Install php-dev (phpize)
+  ansible.builtin.apt:
+    name: php8.2-dev
+    state: present
+
+- name: Install php-date (class Date_Calc)
+  ansible.builtin.apt:
+    name: php-date
+    state: present
+
+- name: Install composer
+  ansible.builtin.apt:
+    name: composer
+    state: present
+
+- name: Install git
+  ansible.builtin.apt:
+    name: git
+    state: present
+
+- name: Create document root
+  ansible.builtin.file:
+    name: "/srv/www"
+    state: directory
+
+- name: check if horde-deployment directory exists
+  ansible.builtin.stat:
+    path: /srv/www/horde-deployment
+  register: hordedeployment
+
+- name: Clone horde deployment
+  ansible.builtin.git:
+    repo: "https://github.com/maintaina-com/horde-deployment.git"
+    dest: "/srv/www/horde-deployment"
+  when: hordedeployment.stat.exists == False
+
+- name: Run composer install
+  ansible.builtin.shell:
+    cmd: "composer install"
+    chdir: "/srv/www/horde-deployment"
+
+- name: Chown document root
+  ansible.builtin.shell:
+    cmd: "chown -R www-data:www-data /srv/www/horde-deployment"
+
+#- name: Upgrade PEAR
+#  ansible.builtin.shell:
+#    cmd: "pear channel-update pear.php.net && pear upgrade --force PEAR"
+
+#- name: Register Horde PEAR channel
+#  ansible.builtin.shell:
+#    cmd: "pear channel-discover pear.horde.org"
+#  ignore_errors: yes
+
+#- name: Set channel autodiscovery
+#  ansible.builtin.shell:
+#    cmd: "pear config-set auto_discover 1"
+
+#
+#- name: Set Horde installation directory
+#  ansible.builtin.shell:
+#    cmd: "pear install horde/horde_role"
+#  ignore_errors: yes
+#
+#- name: Install Horde
+#  ansible.builtin.shell:
+#    cmd: "pear install -a -B horde/horde"
+#    creates: "/usr/share/php/Horde/Config.php"
+#
+#- name: Install Horde applications
+#  ansible.builtin.shell:
+#    cmd: "{{ item }}"
+#    creates: "/usr/share/php/www/horde/imp/index.php"
+#  ignore_errors: yes
+#  loop:
+#    - pear install -P /srv/www/horde-deployment/web -a -B horde/webmail
+#    - pear install -a -B horde/passwd
+#    - pear install -a -B horde/gollem
+#    - pear install -a -B horde/wicked
+
+- ansible.builtin.include_tasks: db.yml
+
+- name: Write Horde application config
+  ansible.builtin.template:
+    src: "conf.php.j2"
+    dest: "/srv/www/horde-deployment/web/horde/config/conf.php"
+    mode: 0600
+    owner: www-data
+    group: www-data
+  tags:
+    - horde_application_config
+
+- name: Run composer horde-reconfigure
+  ansible.builtin.shell:
+    cmd: "sudo -u www-data composer horde-reconfigure"
+    chdir: "/srv/www/horde-deployment"
+
+- name: Install Horde applications
+  ansible.builtin.shell:
+    cmd: "sudo -u www-data composer require horde/kronolith ^5 horde/nag ^5 horde/content ^3 horde/timeobjects ^3 horde/mnemo ^5 horde/turba ^5 horde/passwd ^6 horde/imp ^7 horde/activesync ^3"
+    chdir: "/srv/www/horde-deployment"
+
+- name: Write Horde application configs
+  ansible.builtin.template:
+    src: "{{ item }}/conf.php.j2"
+    dest: "/srv/www/horde-deployment/web/{{ item }}/config/conf.php"
+    mode: 0600
+    owner: www-data
+    group: www-data
+  tags:
+    - horde_application_config
+  loop: "{{ horde_applications }}"
+#
+- name: Write Horde imp backends config
+  ansible.builtin.template:
+    src: "imp/backends.php.j2"
+    dest: "/srv/www/horde-deployment/web/imp/config/backends.php"
+    mode: 0600
+    owner: www-data
+    group: www-data
+  tags:
+    - horde_application_imp_backends_config
+
+
+- name: Create activesync logging dir
+  ansible.builtin.file:
+    path: "/var/log/activesync"
+    state: directory
+    mode: 0750
+    owner: "www-data"
+    group: "www-data"
+
+- name: Create cache dir
+  ansible.builtin.file:
+    path: "/var/lib/horde/cache"
+    state: directory
+    mode: 0750
+    owner: "www-data"
+    group: "www-data"
+
+#- name: Chown static directory
+#  ansible.builtin.file:
+#    path: "/srv/www/horde-deployment/web/horde/static"
+#    owner: "www-data"
+#    group: "www-data"
+
+
